@@ -2,3 +2,5 @@
 /hmdb51_org_stips
 /non_target_videos
 /target_videos
+/__pycache__
+.DS_Store
