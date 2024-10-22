@@ -77,7 +77,10 @@ def main():
             input_feature_blob = result[0]
 
         # Determine the dtype and shape based on the feature space
-        if 'R3D18' in args.feature_space:
+        if 'R3D18-Layer3' in args.feature_space:
+            dtype = np.float32
+            shape = (256,)
+        elif 'R3D18-Layer4' in args.feature_space:
             dtype = np.float32
             shape = (512,)
         elif 'BOF-HOG-480' == args.feature_space or 'BOF-HOF-480' == args.feature_space:
@@ -85,11 +88,10 @@ def main():
             shape = (480,)
         elif 'COL-HIST' == args.feature_space:
             dtype = np.float64
-            shape = (-1,)  # Adjust based on the actual color histogram size
+            shape = (-1,)  # Adjust this shape according to the actual color histogram size
         else:
             print("Unknown feature space.")
             return
-
         # Load the input feature vector
         input_feature_vector = load_feature_vector(input_feature_blob, dtype=dtype, shape=shape)
 
@@ -163,14 +165,14 @@ def main():
     for idx, (video_id, video_path, score) in enumerate(top_videos, start=1):
         print(f"Rank {idx}: Video ID {video_id}, Similarity Score: {score:.4f}")
 
-        # Display the video (or a frame from the video)
-        cap = cv2.VideoCapture(video_path)
-        ret, frame = cap.read()
-        if ret:
-            cv2.imshow(f"Video ID {video_id} - Similarity: {score:.4f}", frame)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-        cap.release()
+        # # Display the video (or a frame from the video)
+        # cap = cv2.VideoCapture(video_path)
+        # ret, frame = cap.read()
+        # if ret:
+        #     cv2.imshow(f"Video ID {video_id} - Similarity: {score:.4f}", frame)
+        #     cv2.waitKey(0)
+        #     cv2.destroyAllWindows()
+        # cap.release()
 
     # Close the database connection
     conn.close()
