@@ -38,25 +38,26 @@ def process_even_videos():
             video_id = int(row['id'])
             video_path = row['video_path']
 
-            if video_id < 10:
+            # if video_id < 10:
 
-                if video_id % 2 == 0 and 'target_videos' in video_path:
-                    category = os.path.basename(os.path.dirname(video_path))  # Extract category from the directory name
-                    
-                    # Extract features from various visual spaces
-                    features_r3d = extract_features(video_path)
-                    features_hog = extract_bof_hog(video_path,video_path.replace('/target_videos/', '/hmdb51_org_stips/').replace('.avi', '.avi.txt'))
-                    features_hof = extract_bof_hof(video_path,video_path.replace('/target_videos/', '/hmdb51_org_stips/').replace('.avi', '.avi.txt'))
-                    features_color_hist = extract_color_hist(video_path)
+            if video_id % 2 == 0 and 'target_videos' in video_path:
+                category = os.path.basename(os.path.dirname(video_path))  # Extract category from the directory name
+                print("!"*10)
+                print(category)
+                # Extract features from various visual spaces
+                features_r3d = extract_features(video_path)
+                features_hog = extract_bof_hog(video_path,video_path.replace('/target_videos/', '/hmdb51_org_stips/').replace('.avi', '.avi.txt'))
+                features_hof = extract_bof_hof(video_path,video_path.replace('/target_videos/', '/hmdb51_org_stips/').replace('.avi', '.avi.txt'))
+                features_color_hist = extract_color_hist(video_path)
 
-                    print(type(features_r3d[0]))
-                    print(type(features_hog))
-                    print(type(features_hof))
-                    print(type(features_color_hist))
-                    print(features_color_hist)
+                print(type(features_r3d[0]))
+                print(type(features_hog))
+                print(type(features_hof))
+                print(type(features_color_hist))
+                print(features_color_hist)
 
-                    # Insert features into the database
-                    insert_features(video_id, video_path, category, features_r3d, features_hog, features_hof, features_color_hist)
+                # Insert features into the database
+                insert_features(video_id, video_path, category, features_r3d, features_hog, features_hof, features_color_hist)
 
 
 # 2. Process odd-numbered videos in the target_videos dataset (do not store category)
@@ -99,8 +100,8 @@ def process_non_target_videos():
 
 try:
     process_even_videos()
-    # process_odd_videos()
-    # process_non_target_videos()
+    process_odd_videos()
+    process_non_target_videos()
 except Exception as e:
     print(f"An error occurred: {e}")
 
