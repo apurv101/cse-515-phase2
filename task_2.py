@@ -1,202 +1,138 @@
-import argparse
 import sqlite3
 import numpy as np
-import os
-import sys
-import pickle
-
+import argparse
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.cluster import KMeans
+import pickle
 
-
-
-# Constants
-DATABASE_PATH = 'database1.db'
-
-def fetch_even_target_video_features(feature_space):
-    """
-    Fetches feature vectors of even-numbered target videos from the database.
-
-    Args:
-        feature_space (str): The selected feature space.
-
-    Returns:
-        video_ids (list): List of video IDs.
-        features_matrix (numpy.ndarray): Matrix of feature vectors.
-    """
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM video_features WHERE id % 2 = 0 AND video_path LIKE '%target_videos%'")
-    rows = cursor.fetchall()
-    conn.close()
-
-    if not rows:
-        print("No even-numbered target videos found in the database.")
-        sys.exit(1)
-
-    video_ids = []
-    features_list = []
-
+def get_feature_column(feature_space):
+    """Map the selected feature space to the corresponding database column."""
     feature_columns = {
-        'r3d_layer3': 3,
-        'r3d_layer4': 4,
-        'r3d_avgpool': 5,
-        'hog': 6,
-        'hof': 7,
-        'color_hist': 8
+        'R3D18-Layer3-512': 'feature_vector_r3d_layer3',
+        'R3D18-Layer4-512': 'feature_vector_r3d_layer4',
+        'R3D18-AvgPool-512': 'feature_vector_r3d_avgpool',
+        'BOF-HOG-480': 'feature_vector_hog',
+        'BOF-HOF-480': 'feature_vector_hof',
+        'COL-HIST': 'feature_vector_color_hist'
     }
+    return feature_columns.get(feature_space)
 
-    if feature_space not in feature_columns:
-        print(f"Feature space '{feature_space}' is not recognized.")
-        sys.exit(1)
+def load_feature_vector(blob_data, dtype, shape):
+    """Convert blob data from the database to a NumPy array."""
+    return np.frombuffer(blob_data, dtype=dtype).reshape(shape)
 
-    column_index = feature_columns[feature_space]
-
-    for row in rows:
-        video_id = row[0]
-        feature_blob = row[column_index]
-        feature_vector = np.frombuffer(feature_blob, dtype=np.float32)
-        video_ids.append(video_id)
-        features_list.append(feature_vector)
-
-    features_matrix = np.vstack(features_list)
-
-    return video_ids, features_matrix
-
-def apply_dimensionality_reduction(method, features_matrix, s, labels=None):
-    """
-    Applies the selected dimensionality reduction technique.
-
-    Args:
-        method (str): The dimensionality reduction method ('pca', 'svd', 'lda', 'kmeans').
-        features_matrix (numpy.ndarray): The feature matrix.
-        s (int): Number of latent semantics to extract.
-        labels (list): Class labels for LDA (optional).
-
-    Returns:
-        model: The trained model.
-        transformed_features: Features transformed into the latent space.
-    """
-    if method == 'pca':
-        model = PCA(n_components=s)
-        transformed_features = model.fit_transform(features_matrix)
-    elif method == 'svd':
-        model = TruncatedSVD(n_components=s)
-        transformed_features = model.fit_transform(features_matrix)
-    elif method == 'lda':
-        if labels is None:
-            print("Class labels are required for LDA.")
-            sys.exit(1)
-        model = LDA(n_components=s)
-        transformed_features = model.fit_transform(features_matrix, labels)
-    elif method == 'kmeans':
-        model = KMeans(n_clusters=s, random_state=42)
-        model.fit(features_matrix)
-        transformed_features = model.transform(features_matrix)
-    else:
-        print(f"Dimensionality reduction method '{method}' is not recognized.")
-        sys.exit(1)
-
-    return model, transformed_features
-
-def get_class_labels(video_ids):
-    """
-    Generates class labels based on video categories for LDA.
-
-    Args:
-        video_ids (list): List of video IDs.
-
-    Returns:
-        labels (list): List of class labels corresponding to video IDs.
-    """
-    conn = sqlite3.connect(DATABASE_PATH)
-    cursor = conn.cursor()
-
-    labels = []
-    for video_id in video_ids:
-        cursor.execute("SELECT category FROM video_features WHERE id = ?", (video_id,))
-        row = cursor.fetchone()
-        if row:
-            category = row[0]
-            labels.append(category)
-        else:
-            labels.append('unknown')  # Default label if category not found
-
-    conn.close()
-    return labels
-
-def store_latent_semantics(output_filename, model, method):
-    """
-    Stores the latent semantics (model components) into a file.
-
-    Args:
-        output_filename (str): The name of the output file.
-        model: The trained model containing latent semantics.
-        method (str): The dimensionality reduction method used.
-    """
-    with open(output_filename, 'wb') as f:
-        pickle.dump({'method': method, 'model': model}, f)
-    print(f"Latent semantics stored in '{output_filename}'.")
-
-def list_video_weights(video_ids, transformed_features, method):
-    """
-    Lists videoID-weight pairs ordered in decreasing order of weights.
-
-    Args:
-        video_ids (list): List of video IDs.
-        transformed_features (numpy.ndarray): Transformed feature matrix.
-        method (str): The dimensionality reduction method used.
-    """
-    if method in ['pca', 'svd', 'lda']:
-        # Use the first component's absolute values as weights
-        weights = np.abs(transformed_features[:, 0])
-    elif method == 'kmeans':
-        # Use the inverse of the distance to cluster center as weight
-        distances = transformed_features.min(axis=1)
-        weights = 1 / (distances + 1e-10)  # Add epsilon to avoid division by zero
-    else:
-        weights = np.zeros(len(video_ids))
-
-    # Create a list of tuples (video_id, weight)
-    video_weights = list(zip(video_ids, weights))
-
-    # Sort by weight in decreasing order
-    video_weights.sort(key=lambda x: x[1], reverse=True)
-
-    print("\nVideoID - Weight pairs (ordered by decreasing weights):")
-    for video_id, weight in video_weights:
-        print(f"VideoID: {video_id}, Weight: {weight:.4f}")
+def store_latent_semantics(latent_semantics, filename):
+    """Store the latent semantics (factor matrices, core matrix) in a file."""
+    with open(filename, 'wb') as file:
+        pickle.dump(latent_semantics, file)
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract top-s latent semantics from video features.")
-    parser.add_argument('--feature_space', type=str, required=True,
-                        choices=['r3d_layer3', 'r3d_layer4', 'r3d_avgpool', 'hog', 'hof', 'color_hist'],
-                        help='Feature space to use')
-    parser.add_argument('--s', type=int, required=True, help='Number of latent semantics to extract')
-    parser.add_argument('--method', type=str, required=True,
-                        choices=['pca', 'svd', 'lda', 'kmeans'],
-                        help='Dimensionality reduction method to use')
+    parser = argparse.ArgumentParser(description="Extract latent semantics from even-numbered target videos.")
+    parser.add_argument('--feature_space', type=str, required=True, choices=[
+        'R3D18-Layer3-512', 'R3D18-Layer4-512', 'R3D18-AvgPool-512',
+        'BOF-HOG-480', 'BOF-HOF-480', 'COL-HIST'
+    ], help='Selected feature space')
+    parser.add_argument('--s', type=int, required=True, help='Number of top latent semantics to report')
+    parser.add_argument('--dim_reduction', type=str, required=True, choices=['PCA', 'SVD', 'LDA', 'k-means'],
+                        help='Dimensionality reduction technique to use')
+    parser.add_argument('--output_file', type=str, required=True, help='Output file to store the latent semantics')
     args = parser.parse_args()
 
-    # Fetch features of even-numbered target videos
-    video_ids, features_matrix = fetch_even_target_video_features(args.feature_space)
+    # Connect to SQLite database
+    conn = sqlite3.connect('database1.db')
+    cursor = conn.cursor()
 
-    # Get class labels if LDA is selected
-    labels = None
-    if args.method == 'lda':
-        labels = get_class_labels(video_ids)
+    # Get the feature column name based on the selected feature space
+    feature_column = get_feature_column(args.feature_space)
+    if not feature_column:
+        print("Invalid feature space selected.")
+        return
 
-    # Apply dimensionality reduction
-    model, transformed_features = apply_dimensionality_reduction(args.method, features_matrix, args.s, labels)
+    # Determine the dtype and shape based on the feature space
+    if 'R3D18-Layer3' in args.feature_space:
+        dtype = np.float32
+        shape = (256,)
+    elif 'R3D18-Layer4' in args.feature_space:
+        dtype = np.float32
+        shape = (512,)
+    elif 'BOF-HOG-480' == args.feature_space or 'BOF-HOF-480' == args.feature_space:
+        dtype = np.float32
+        shape = (480,)
+    elif 'COL-HIST' == args.feature_space:
+        dtype = np.float64
+        shape = (-1,)  # Adjust this shape according to the actual color histogram size
+    else:
+        print("Unknown feature space.")
+        return
 
-    # Store latent semantics
-    output_filename = f"latent_semantics_{args.method}_{args.feature_space}_s{args.s}.pkl"
-    store_latent_semantics(output_filename, model, args.method)
+    # Retrieve feature vectors for even-numbered target videos
+    cursor.execute(f'''
+        SELECT id, {feature_column}
+        FROM video_features
+        WHERE id % 2 = 0 AND category IS NOT NULL
+    ''')
+    rows = cursor.fetchall()
+
+    # Extract video IDs and their feature vectors
+    video_ids = []
+    feature_vectors = []
+    for row in rows:
+        video_id = row[0]
+        feature_blob = row[1]
+        feature_vector = load_feature_vector(feature_blob, dtype=dtype, shape=shape)
+        video_ids.append(video_id)
+        feature_vectors.append(feature_vector)
+
+    # Convert feature vectors to NumPy array
+    X = np.array(feature_vectors)
+
+    # Perform dimensionality reduction based on the user's choice
+    if args.dim_reduction == 'PCA':
+        model = PCA(n_components=args.s)
+        X_transformed = model.fit_transform(X)
+        components = model.components_
+        explained_variance = model.explained_variance_ratio_
+    elif args.dim_reduction == 'SVD':
+        model = TruncatedSVD(n_components=args.s)
+        X_transformed = model.fit_transform(X)
+        components = model.components_
+        explained_variance = model.explained_variance_ratio_
+    elif args.dim_reduction == 'LDA':
+        model = LDA(n_components=args.s)
+        # LDA requires labels; here we treat video IDs as labels
+        X_transformed = model.fit_transform(X, video_ids)
+        components = model.scalings_
+        explained_variance = None  # LDA does not provide explained variance
+    elif args.dim_reduction == 'k-means':
+        model = KMeans(n_clusters=args.s)
+        X_transformed = model.fit_transform(X)
+        components = None  # k-means does not provide components
+        explained_variance = None
+
+    # Store the latent semantics in the output file
+    latent_semantics = {
+        'model': model,
+        'components': components,
+        'explained_variance': explained_variance,
+        'X_transformed': X_transformed
+    }
+    store_latent_semantics(latent_semantics, args.output_file)
+
+    # Compute videoID-weight pairs (using X_transformed)
+    weights = np.linalg.norm(X_transformed, axis=1)
+    video_weight_pairs = list(zip(video_ids, weights))
+
+    # Sort videoID-weight pairs by weights in descending order
+    video_weight_pairs.sort(key=lambda x: x[1], reverse=True)
 
     # List videoID-weight pairs
-    list_video_weights(video_ids, transformed_features, args.method)
+    print(f"Top-{args.s} latent semantics:")
+    for video_id, weight in video_weight_pairs:
+        print(f"Video ID: {video_id}, Weight: {weight:.4f}")
+
+    # Close the database connection
+    conn.close()
 
 if __name__ == '__main__':
     main()
