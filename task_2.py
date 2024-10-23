@@ -58,7 +58,7 @@ def main():
         shape = (512,)
     elif 'BOF-HOG-480' == args.feature_space or 'BOF-HOF-480' == args.feature_space:
         dtype = np.float32
-        shape = (480,)
+        shape = (960,)
     elif 'COL-HIST' == args.feature_space:
         dtype = np.float64
         shape = (-1,)  # Adjust this shape according to the actual color histogram size
